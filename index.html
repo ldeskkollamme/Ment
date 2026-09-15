@@ -1,0 +1,1845 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NUMBER CHALLENGE - 2-Player Real-Time Multiplayer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#0B0D1B',
+                            card: '#151932',
+                            purple: '#7928CA',
+                            pink: '#FF0080',
+                            cyan: '#00DFD8',
+                            yellow: '#FDBB2D',
+                            green: '#10B981',
+                            red: '#EF4444'
+                        }
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'bounce-short': 'bounce 0.6s ease infinite',
+                        'spin-slow': 'spin 12s linear infinite',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Firebase Compat SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <!-- Canvas Confetti for Game Over / Celebrations -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Outfit:wght@400;600;800;900&display=swap');
+        
+        * {
+            font-family: 'Outfit', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        
+        .font-game {
+            font-family: 'Fredoka', cursive, sans-serif;
+        }
+        
+        /* Neon Glows & Gradients */
+        .neon-glow-pink {
+            box-shadow: 0 0 25px rgba(255, 0, 128, 0.45);
+        }
+        .neon-glow-cyan {
+            box-shadow: 0 0 25px rgba(0, 223, 216, 0.45);
+        }
+        .neon-glow-yellow {
+            box-shadow: 0 0 25px rgba(253, 187, 45, 0.45);
+        }
+        .text-gradient-fire {
+            background: linear-gradient(135deg, #FF0080 0%, #7928CA 50%, #00DFD8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .text-gradient-gold {
+            background: linear-gradient(135deg, #FFE000 0%, #799F0C 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        /* Custom Scrollbar for large number grids */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #7928CA;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #FF0080;
+        }
+        
+        /* Number Circle Buttons */
+        .number-btn {
+            aspect-ratio: 1 / 1;
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .number-btn:active {
+            transform: scale(0.92);
+        }
+        .number-btn.selected {
+            border-color: #00DFD8;
+            box-shadow: 0 0 20px #00DFD8, inset 0 0 10px #00DFD8;
+            transform: scale(1.08);
+            background: linear-gradient(135deg, #7928CA, #00DFD8) !important;
+            color: #ffffff !important;
+        }
+        
+        .badge-pulse {
+            animation: pulseGlow 1.5s infinite alternate;
+        }
+        @keyframes pulseGlow {
+            0% { transform: scale(1); filter: drop-shadow(0 0 4px #00DFD8); }
+            100% { transform: scale(1.04); filter: drop-shadow(0 0 14px #FF0080); }
+        }
+        
+        /* Background animated gradient canvas */
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-brand-dark text-slate-100 min-h-screen overflow-x-hidden flex flex-col justify-between relative selection:bg-brand-pink selection:text-white">
+    <!-- Background Canvas -->
+    <canvas id="bg-canvas"></canvas>
+    
+    <!-- Top Universal Navigation / Audio / Settings -->
+    <header class="relative z-20 w-full max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-2 cursor-pointer" onclick="app.showScreen('home')">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-pink to-brand-purple flex items-center justify-center font-game font-bold text-xl text-white shadow-lg shadow-pink-500/30">
+                #
+            </div>
+            <div>
+                <h1 class="text-xl font-black tracking-wider text-gradient-fire">NUMBER CHALLENGE</h1>
+                <p class="text-[10px] text-slate-400 font-bold tracking-widest uppercase">100 Levels • Realtime 1v1</p>
+            </div>
+        </div>
+        
+        <div class="flex items-center space-x-2">
+            <!-- Firebase Config Status & Switch Button -->
+            <button id="btn-db-status" onclick="app.openConfigModal()" class="px-2.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 hover:border-slate-500 text-xs font-semibold flex items-center space-x-1.5 transition">
+                <span id="db-indicator" class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span id="db-label" class="text-slate-300">Firebase Setup</span>
+            </button>
+            <!-- Sound Toggle -->
+            <button id="btn-sound" onclick="soundEngine.toggleSound()" class="w-10 h-10 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-cyan-400 flex items-center justify-center text-cyan-400 transition hover:scale-105 active:scale-95 shadow-md">
+                <svg id="sound-icon-on" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
+                </svg>
+                <svg id="sound-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path>
+                </svg>
+            </button>
+        </div>
+    </header>
+    
+    <!-- Main Dynamic View Container -->
+    <main class="relative z-10 w-full max-w-md md:max-w-xl lg:max-w-3xl mx-auto px-4 py-2 flex-grow flex flex-col justify-center">
+        <!-- ============================================== SCREEN 1: HOME SCREEN ============================================== -->
+        <section id="screen-home" class="w-full flex flex-col items-center text-center space-y-6">
+            <div class="relative">
+                <div class="absolute -inset-1 bg-gradient-to-r from-brand-pink via-brand-purple to-brand-cyan rounded-3xl blur-xl opacity-60 animate-pulse"></div>
+                <div class="relative bg-brand-card/90 backdrop-blur-xl border border-slate-700/60 p-6 md:p-8 rounded-3xl shadow-2xl w-full max-w-md">
+                    <div class="inline-block px-3 py-1 rounded-full bg-brand-purple/30 border border-brand-purple/60 text-brand-cyan text-xs font-bold tracking-wider uppercase mb-3">
+                        Real-time Online Duel
+                    </div>
+                    <h2 class="text-4xl md:text-5xl font-black font-game text-white tracking-tight leading-none mb-2">
+                        NUMBER <span class="text-gradient-fire">CHALLENGE</span>
+                    </h2>
+                    <p class="text-slate-300 font-semibold text-sm md:text-base mb-6">Think. Choose. Guess. Win.</p>
+                    
+                    <!-- Player Name Input -->
+                    <div class="space-y-3 mb-6 text-left">
+                        <label class="text-xs font-bold uppercase tracking-wider text-slate-400 block ml-1">Enter Your Name</label>
+                        <div class="relative">
+                            <input id="input-player-name" type="text" maxlength="15" placeholder="e.g. MasterGamer" class="w-full bg-slate-900/90 border-2 border-slate-700 focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/20 rounded-2xl px-4 py-3.5 text-white font-bold text-lg placeholder-slate-500 outline-none transition">
+                            <span class="absolute right-3.5 top-3.5 text-xs font-bold text-slate-500">MAX 15</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="space-y-3">
+                        <button onclick="app.handleCreateRoomClick()" class="w-full group relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-pink to-brand-purple p-0.5 font-bold shadow-lg shadow-pink-600/30 active:scale-95 transition">
+                            <div class="w-full bg-gradient-to-r from-brand-pink to-brand-purple py-3.5 px-6 rounded-2xl flex items-center justify-center space-x-2 text-white text-lg font-black tracking-wide">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                <span>CREATE ROOM</span>
+                            </div>
+                        </button>
+                        <button onclick="app.showJoinModal()" class="w-full rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 border-2 border-slate-700 hover:border-brand-cyan py-3.5 px-6 text-white text-lg font-black tracking-wide flex items-center justify-center space-x-2 transition active:scale-95">
+                            <svg class="w-6 h-6 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+                            </svg>
+                            <span>JOIN ROOM</span>
+                        </button>
+                    </div>
+                    
+                    <div class="mt-6 pt-4 border-t border-slate-800 flex justify-center space-x-4">
+                        <button onclick="app.showInstructionsModal()" class="text-xs font-bold text-brand-cyan hover:underline flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span>HOW TO PLAY</span>
+                        </button>
+                        <span class="text-slate-600">•</span>
+                        <button onclick="app.openConfigModal()" class="text-xs font-bold text-slate-400 hover:text-white flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                            <span>FIREBASE RULES</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- ============================================== SCREEN 2: LOBBY / ROOM SCREEN ============================================== -->
+        <section id="screen-lobby" class="w-full hidden flex flex-col items-center text-center space-y-4">
+            <div class="bg-brand-card/90 border border-slate-700/80 p-6 md:p-8 rounded-3xl shadow-2xl w-full max-w-lg backdrop-blur-md">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+                    <button onclick="app.leaveRoom()" class="text-xs font-bold text-slate-400 hover:text-red-400 flex items-center space-x-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                        </svg>
+                        <span>LEAVE</span>
+                    </button>
+                    <span class="text-xs font-bold text-brand-cyan uppercase tracking-wider">GAME LOBBY</span>
+                    <span class="w-12"></span>
+                </div>
+                
+                <!-- Room Code Banner -->
+                <div class="my-5 p-4 rounded-2xl bg-slate-900/90 border-2 border-brand-purple/50 relative overflow-hidden">
+                    <div class="text-xs uppercase font-bold text-slate-400 tracking-widest mb-1">ROOM CODE</div>
+                    <div id="lobby-room-code" class="text-4xl md:text-5xl font-black font-game tracking-widest text-brand-yellow drop-shadow-md">------</div>
+                    <div class="mt-3 flex justify-center space-x-2">
+                        <button onclick="app.copyRoomCode()" class="px-3.5 py-1.5 rounded-xl bg-brand-purple/40 hover:bg-brand-purple border border-brand-purple/70 text-xs font-bold text-white flex items-center space-x-1.5 transition">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                            </svg>
+                            <span id="copy-btn-text">COPY CODE</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Players Slots -->
+                <div class="grid grid-cols-2 gap-3 my-6">
+                    <!-- Player 1 Card -->
+                    <div id="lobby-p1-card" class="bg-slate-900/60 p-4 rounded-2xl border-2 border-brand-pink/50 flex flex-col items-center relative">
+                        <span class="absolute top-2 left-2 text-[10px] font-black uppercase bg-brand-pink/20 text-brand-pink px-2 py-0.5 rounded-md">HOST</span>
+                        <div class="w-14 h-14 rounded-full bg-gradient-to-tr from-brand-pink to-purple-600 flex items-center justify-center text-white text-xl font-black mb-2 mt-2 shadow-lg shadow-pink-500/30">P1</div>
+                        <h4 id="lobby-p1-name" class="font-bold text-sm text-white truncate max-w-full">Waiting...</h4>
+                        <div class="flex items-center space-x-1.5 mt-1">
+                            <span id="lobby-p1-dot" class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+                            <span id="lobby-p1-status" class="text-[11px] font-bold text-slate-400">Offline</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Player 2 Card -->
+                    <div id="lobby-p2-card" class="bg-slate-900/60 p-4 rounded-2xl border-2 border-slate-700 flex flex-col items-center relative">
+                        <span class="absolute top-2 left-2 text-[10px] font-black uppercase bg-brand-cyan/20 text-brand-cyan px-2 py-0.5 rounded-md">GUEST</span>
+                        <div class="w-14 h-14 rounded-full bg-gradient-to-tr from-brand-cyan to-blue-600 flex items-center justify-center text-white text-xl font-black mb-2 mt-2 shadow-lg shadow-cyan-500/30">P2</div>
+                        <h4 id="lobby-p2-name" class="font-bold text-sm text-white truncate max-w-full">Waiting...</h4>
+                        <div class="flex items-center space-x-1.5 mt-1">
+                            <span id="lobby-p2-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                            <span id="lobby-p2-status" class="text-[11px] font-bold text-slate-400">Waiting for opponent...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Host Start Button -->
+                <div id="lobby-host-controls" class="space-y-2">
+                    <button id="btn-start-game" onclick="app.startGame()" disabled class="w-full py-4 rounded-2xl bg-slate-800 text-slate-500 font-black text-lg tracking-wider uppercase transition cursor-not-allowed">
+                        START GAME
+                    </button>
+                    <p id="lobby-msg" class="text-xs font-semibold text-amber-400">Waiting for Player 2 to join...</p>
+                </div>
+                
+                <!-- Guest Waiting Prompt -->
+                <div id="lobby-guest-controls" class="hidden py-4 rounded-2xl bg-slate-900/40 border border-slate-800">
+                    <p class="text-sm font-bold text-brand-cyan animate-pulse">Waiting for host to start the game...</p>
+                </div>
+            </div>
+        </section>
+        
+        <!-- ============================================== SCREEN 3: GAMEPLAY SCREEN ============================================== -->
+        <section id="screen-game" class="w-full hidden flex flex-col space-y-3">
+            <!-- Top Scoreboard Bar -->
+            <div class="bg-brand-card/90 border border-slate-700/80 p-3.5 rounded-2xl shadow-xl backdrop-blur-md">
+                <div class="flex items-center justify-between mb-2">
+                    <!-- Level Badge -->
+                    <div class="flex items-center space-x-2">
+                        <span class="px-3 py-1 rounded-xl bg-gradient-to-r from-brand-pink to-brand-purple font-black text-white text-xs md:text-sm tracking-wider shadow">
+                            LEVEL <span id="game-level-display">1</span>/100
+                        </span>
+                        <span id="game-turn-display" class="text-xs font-bold text-slate-300">Turn 1/2</span>
+                        <span id="game-round-display" class="text-xs font-bold text-brand-cyan">Round 1/10</span>
+                    </div>
+                    
+                    <!-- 15s Timer -->
+                    <div class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-slate-900 border border-slate-700">
+                        <svg class="w-4 h-4 text-brand-yellow animate-spin-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span class="text-xs font-bold text-slate-400">TIME:</span>
+                        <span id="game-timer" class="text-sm font-black text-brand-yellow w-7 text-right">15s</span>
+                    </div>
+                </div>
+                
+                <!-- Scoreboard Cards -->
+                <div class="grid grid-cols-2 gap-2 my-1">
+                    <div id="score-card-p1" class="p-2 rounded-xl bg-slate-900/90 border-2 border-brand-pink/60 flex items-center justify-between">
+                        <div class="truncate mr-2">
+                            <span class="text-[10px] font-bold text-brand-pink block">PLAYER 1</span>
+                            <span id="score-name-p1" class="text-xs font-black text-white truncate block">P1</span>
+                        </div>
+                        <div id="score-val-p1" class="text-xl font-black font-game text-brand-pink">0</div>
+                    </div>
+                    <div id="score-card-p2" class="p-2 rounded-xl bg-slate-900/90 border-2 border-brand-cyan/60 flex items-center justify-between">
+                        <div class="truncate mr-2">
+                            <span class="text-[10px] font-bold text-brand-cyan block">PLAYER 2</span>
+                            <span id="score-name-p2" class="text-xs font-black text-white truncate block">P2</span>
+                        </div>
+                        <div id="score-val-p2" class="text-xl font-black font-game text-brand-cyan">0</div>
+                    </div>
+                </div>
+                
+                <!-- Level Progress Indicator Bar -->
+                <div class="mt-2.5">
+                    <div class="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
+                        <span>PROGRESS</span>
+                        <span id="progress-percent">1%</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5">
+                        <div id="progress-bar-fill" class="h-full bg-gradient-to-r from-brand-pink via-brand-purple to-brand-cyan rounded-full transition-all duration-300" style="width: 1%;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Turn Banner & Action Instruction -->
+            <div id="turn-banner" class="py-3 px-4 rounded-2xl bg-gradient-to-r from-brand-purple/40 to-slate-900/90 border border-brand-purple/50 text-center shadow-lg backdrop-blur-md">
+                <h3 id="turn-title" class="text-base md:text-lg font-black tracking-wide text-white font-game uppercase">
+                    YOUR TURN: CHOOSE A SECRET NUMBER
+                </h3>
+                <p id="turn-subtitle" class="text-xs font-semibold text-slate-300 mt-0.5">
+                    Pick a number secretly. Opponent will try to guess it.
+                </p>
+            </div>
+            
+            <!-- Numbers Grid Container (Dynamic 2 to 101 circles with auto-responsive layout & clean scroll) -->
+            <div class="bg-brand-card/90 border border-slate-700/80 p-4 md:p-6 rounded-3xl shadow-2xl backdrop-blur-md flex-1 flex flex-col">
+                <div id="numbers-grid-scroll" class="w-full max-h-[50vh] overflow-y-auto pr-1">
+                    <div id="numbers-grid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 justify-items-center">
+                        <!-- Number Circles injected dynamically -->
+                    </div>
+                </div>
+                
+                <!-- Bottom Action Confirmation Bar -->
+                <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
+                    <div class="text-xs font-semibold text-slate-400">
+                        Selected: <span id="selected-number-preview" class="text-sm font-black text-brand-cyan">None</span>
+                    </div>
+                    <button id="btn-confirm-action" onclick="app.handleConfirmNumber()" disabled class="px-6 py-2.5 rounded-xl bg-slate-800 text-slate-500 font-black text-sm tracking-wide uppercase transition cursor-not-allowed">
+                        CONFIRM NUMBER
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Stats Mini Bar -->
+            <div class="flex items-center justify-between text-[11px] font-bold text-slate-400 px-3">
+                <div>Correct: <span id="stats-correct" class="text-green-400 font-black">0</span></div>
+                <div>Wrong: <span id="stats-wrong" class="text-red-400 font-black">0</span></div>
+                <div>Accuracy: <span id="stats-acc" class="text-brand-cyan font-black">0%</span></div>
+            </div>
+        </section>
+        
+        <!-- ============================================== SCREEN 4: GAME OVER SCREEN ============================================== -->
+        <section id="screen-gameover" class="w-full hidden flex flex-col items-center text-center space-y-4">
+            <div class="bg-brand-card/95 border border-slate-700/80 p-6 md:p-8 rounded-3xl shadow-2xl w-full max-w-lg backdrop-blur-md">
+                <div class="inline-block px-4 py-1 rounded-full bg-brand-yellow/20 border border-brand-yellow/50 text-brand-yellow font-black text-xs uppercase tracking-widest mb-3 animate-bounce-short">
+                    CHALLENGE COMPLETED
+                </div>
+                <h2 class="text-3xl md:text-5xl font-black font-game text-white tracking-wide leading-tight mb-1">
+                    GAME OVER
+                </h2>
+                <div id="gameover-winner-banner" class="my-4 py-3 px-6 rounded-2xl bg-gradient-to-r from-brand-pink via-brand-purple to-brand-cyan text-white text-xl md:text-2xl font-black uppercase shadow-lg shadow-pink-500/20">
+                    PLAYER 1 WINS!
+                </div>
+                
+                <!-- Final Scoreboard Cards -->
+                <div class="grid grid-cols-2 gap-3 my-5">
+                    <div class="p-4 rounded-2xl bg-slate-900/80 border-2 border-brand-pink flex flex-col items-center">
+                        <span id="gameover-p1-name" class="text-xs font-bold text-brand-pink truncate max-w-full">Player 1</span>
+                        <div id="gameover-p1-score" class="text-4xl font-black font-game text-white mt-1">0</div>
+                        <span class="text-[10px] text-slate-400 mt-1 uppercase font-bold">Points</span>
+                    </div>
+                    <div class="p-4 rounded-2xl bg-slate-900/80 border-2 border-brand-cyan flex flex-col items-center">
+                        <span id="gameover-p2-name" class="text-xs font-bold text-brand-cyan truncate max-w-full">Player 2</span>
+                        <div id="gameover-p2-score" class="text-4xl font-black font-game text-white mt-1">0</div>
+                        <span class="text-[10px] text-slate-400 mt-1 uppercase font-bold">Points</span>
+                    </div>
+                </div>
+                
+                <!-- Detailed Statistics Summary -->
+                <div class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800 space-y-2 text-xs font-bold text-slate-300 text-left">
+                    <div class="flex justify-between pb-1 border-b border-slate-800">
+                        <span class="text-slate-400">Total Levels Completed:</span>
+                        <span id="gameover-levels-count" class="text-white font-black">100 Levels</span>
+                    </div>
+                    <div class="flex justify-between pb-1 border-b border-slate-800">
+                        <span class="text-slate-400">Total Turns Played:</span>
+                        <span id="gameover-turns-count" class="text-white font-black">2000 Turns</span>
+                    </div>
+                    <div class="flex justify-between pb-1 border-b border-slate-800">
+                        <span class="text-slate-400">Total Correct Guesses:</span>
+                        <span id="gameover-correct-count" class="text-green-400 font-black">0</span>
+                    </div>
+                    <div class="flex justify-between pb-1 border-b border-slate-800">
+                        <span class="text-slate-400">Total Wrong Guesses:</span>
+                        <span id="gameover-wrong-count" class="text-red-400 font-black">0</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Overall Accuracy:</span>
+                        <span id="gameover-accuracy" class="text-brand-cyan font-black">0%</span>
+                    </div>
+                </div>
+                
+                <!-- Rematch / Return Actions -->
+                <div class="mt-6 space-y-2.5">
+                    <button id="btn-play-again" onclick="app.requestPlayAgain()" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-brand-pink to-brand-purple text-white font-black text-base uppercase tracking-wider shadow-lg shadow-pink-500/30 hover:scale-[1.02] active:scale-95 transition">
+                        PLAY AGAIN
+                    </button>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="app.leaveRoom()" class="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider text-white transition">
+                            CREATE NEW ROOM
+                        </button>
+                        <button onclick="app.showScreen('home')" class="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold uppercase tracking-wider text-white transition">
+                            HOME
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+    
+    <!-- Footer -->
+    <footer class="relative z-10 text-center py-3 text-[11px] font-semibold text-slate-500">
+        NUMBER CHALLENGE © 2025 • High-Precision Real-Time Multiplayer
+    </footer>
+    
+    <!-- ============================================== OVERLAY 1: LEVEL COUNTDOWN MODAL (3 - 2 - 1 - GO!) ============================================== -->
+    <div id="modal-countdown" class="fixed inset-0 z-50 bg-brand-dark/90 backdrop-blur-md hidden flex flex-col items-center justify-center pointer-events-auto">
+        <div class="text-center space-y-2 animate-bounce-short">
+            <div id="countdown-level-title" class="text-2xl md:text-3xl font-black font-game text-brand-cyan uppercase tracking-widest">
+                LEVEL 1
+            </div>
+            <div id="countdown-number" class="text-7xl md:text-9xl font-black font-game text-white tracking-widest text-gradient-fire drop-shadow-2xl">
+                3
+            </div>
+        </div>
+    </div>
+    
+    <!-- ============================================== OVERLAY 2: ROUND RESULT POPUP (CORRECT! / WRONG!) ============================================== -->
+    <div id="modal-result" class="fixed inset-0 z-40 bg-brand-dark/80 backdrop-blur-sm hidden flex flex-col items-center justify-center pointer-events-none p-4">
+        <div id="result-box" class="transform scale-90 transition duration-300 p-6 md:p-8 rounded-3xl bg-brand-card border-2 shadow-2xl text-center max-w-sm w-full">
+            <div id="result-icon" class="w-16 h-16 mx-auto rounded-full flex items-center justify-center text-3xl mb-3 shadow-lg">
+                🎉
+            </div>
+            <h3 id="result-title" class="text-2xl md:text-3xl font-black font-game mb-1">
+                CORRECT!
+            </h3>
+            <p id="result-desc" class="text-sm font-bold text-slate-300 mb-2">
+                Player 2 gained +1 Point!
+            </p>
+            <div id="result-secret-reveal" class="text-xs font-extrabold uppercase tracking-wider text-brand-yellow">
+                The Secret Number Was: <span id="result-secret-num" class="text-base text-white underline">42</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ============================================== MODAL 3: JOIN ROOM INPUT ============================================== -->
+    <div id="modal-join" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-brand-card border border-slate-700 p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl relative">
+            <button onclick="app.closeJoinModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+            <h3 class="text-xl font-black text-white font-game uppercase mb-1">ENTER ROOM CODE</h3>
+            <p class="text-xs text-slate-400 font-semibold mb-4">Enter the 6-digit code provided by the host.</p>
+            <input id="input-join-code" type="text" maxlength="6" inputmode="numeric" placeholder="123456" class="w-full text-center text-3xl tracking-widest font-black font-game bg-slate-900 border-2 border-slate-700 focus:border-brand-cyan rounded-2xl py-3 text-brand-yellow outline-none mb-4 uppercase">
+            <div id="join-error-msg" class="text-xs font-bold text-red-400 mb-3 hidden"></div>
+            <button onclick="app.handleJoinRoomClick()" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-brand-cyan to-blue-600 text-white font-black text-base uppercase tracking-wider shadow-lg shadow-cyan-500/30 active:scale-95 transition">
+                JOIN NOW
+            </button>
+        </div>
+    </div>
+    
+    <!-- ============================================== MODAL 4: HOW TO PLAY INSTRUCTIONS ============================================== -->
+    <div id="modal-instructions" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-brand-card border border-slate-700 p-6 md:p-8 rounded-3xl max-w-md w-full text-left shadow-2xl relative max-h-[85vh] overflow-y-auto">
+            <button onclick="app.closeInstructionsModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+            <div class="flex items-center space-x-2 mb-3">
+                <span class="w-8 h-8 rounded-xl bg-brand-cyan/20 text-brand-cyan flex items-center justify-center font-black">?</span>
+                <h3 class="text-xl font-black text-white font-game uppercase">HOW TO PLAY</h3>
+            </div>
+            <ol class="space-y-3 text-xs md:text-sm font-semibold text-slate-300 list-decimal list-inside pr-1">
+                <li><strong class="text-white">Enter Name & Create/Join:</strong> Enter your nickname and start a 6-digit room.</li>
+                <li><strong class="text-white">100 Levels with 10 Rounds Each:</strong> 
+                    <ul class="list-disc list-inside pl-4 text-xs text-slate-400 mt-1 space-y-0.5">
+                        <li>Each level consists of 10 rounds.</li>
+                        <li>Each round has exactly 2 turns (one for each player).</li>
+                        <li>Total turns per level: 20 turns.</li>
+                        <li>Total turns in the entire game: 2,000 turns.</li>
+                    </ul>
+                </li>
+                <li><strong class="text-white">Number Selection per Level:</strong> 
+                    <ul class="list-disc list-inside pl-4 text-xs text-slate-400 mt-1 space-y-0.5">
+                        <li>Level 1: 2 number circles available.</li>
+                        <li>Level 2: 3 number circles available.</li>
+                        <li>... up to Level 100 with 101 number circles.</li>
+                    </ul>
+                </li>
+                <li><strong class="text-white">Turn Structure:</strong> 
+                    <ul class="list-disc list-inside pl-4 text-xs text-slate-400 mt-1 space-y-0.5">
+                        <li><span class="text-brand-pink">Turn 1:</span> Player 1 secretly chooses a number → Player 2 guesses. (Correct = Player 2 +1 point)</li>
+                        <li><span class="text-brand-cyan">Turn 2:</span> Player 2 secretly chooses a number → Player 1 guesses. (Correct = Player 1 +1 point)</li>
+                    </ul>
+                </li>
+                <li><strong class="text-white">15-Second Timer:</strong> Each turn has a 15-second countdown. Failure to pick/guess awards 0 points.</li>
+                <li><strong class="text-white">Anti-Cheat Security:</strong> The secret number is sealed and never exposed to the guesser's browser until revealed.</li>
+                <li><strong class="text-white">Victory:</strong> After all 100 levels (2,000 turns), the player with the highest total score wins!</li>
+            </ol>
+            <button onclick="app.closeInstructionsModal()" class="w-full mt-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-black text-xs uppercase tracking-wider transition">
+                GOT IT, LET'S PLAY!
+            </button>
+        </div>
+    </div>
+    
+    <!-- ============================================== MODAL 5: FIREBASE SETUP & RULES GUIDE ============================================== -->
+    <div id="modal-firebase-config" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-brand-card border border-slate-700 p-6 rounded-3xl max-w-lg w-full text-left shadow-2xl relative max-h-[88vh] overflow-y-auto">
+            <button onclick="app.closeConfigModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+            <h3 class="text-xl font-black text-white font-game uppercase mb-1">FIREBASE SETUP & CONFIG</h3>
+            <p class="text-xs text-slate-400 font-semibold mb-4">
+                Enter your Firebase Realtime Database config below or use built-in Live Cloud Sandbox for instant cross-device play.
+            </p>
+            <div class="space-y-3 mb-4 text-xs">
+                <div>
+                    <label class="font-bold text-slate-300 block mb-1">Firebase Config JSON:</label>
+                    <textarea id="input-custom-firebase-config" rows="5" placeholder='{
+  "apiKey": "AIzaSy...",
+  "authDomain": "project.firebaseapp.com",
+  "databaseURL": "https://project-default-rtdb.firebaseio.com",
+  "projectId": "project-id"
+}' class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 font-mono text-[11px] text-cyan-300 focus:border-brand-cyan outline-none"></textarea>
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="app.saveFirebaseConfig()" class="flex-1 py-2.5 rounded-xl bg-brand-cyan text-brand-dark font-black text-xs uppercase hover:bg-cyan-300 transition">
+                        APPLY & RECONNECT
+                    </button>
+                    <button onclick="app.loadDemoConfig()" class="px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white transition">
+                        USE PUBLIC TEST DB
+                    </button>
+                </div>
+            </div>
+            <div class="pt-3 border-t border-slate-800 space-y-2">
+                <h4 class="font-bold text-xs text-brand-yellow uppercase tracking-wider">Firebase Realtime Database Rules:</h4>
+                <pre class="bg-slate-950 p-3 rounded-xl text-[10px] font-mono text-slate-300 overflow-x-auto border border-slate-800">{
+  "rules": {
+    "rooms": {
+      "$roomCode": {
+        ".read": true,
+        ".write": true,
+        "secretNumber": {
+          /* Anti-cheat: only author or revealed state */
+        }
+      }
+    }
+  }
+}</pre>
+                <p class="text-[11px] text-slate-400">
+                    Paste this in your Firebase Console > Realtime Database > Rules tab.
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ============================================== AUDIO SYNTHESIS ENGINE (Web Audio API - No External Sound Files Needed) ============================================== -->
+    <script>
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+            
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        this.ctx = new AudioContext();
+                    }
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+            
+            toggleSound() {
+                this.enabled = !this.enabled;
+                document.getElementById('sound-icon-on').classList.toggle('hidden', !this.enabled);
+                document.getElementById('sound-icon-off').classList.toggle('hidden', this.enabled);
+                if (this.enabled) this.playTone(587.33, 'sine', 0.1, 0.1);
+            }
+            
+            playTone(freq, type = 'sine', duration = 0.15, gainVal = 0.15) {
+                if (!this.enabled) return;
+                try {
+                    this.init();
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) {
+                    console.warn("Audio error:", e);
+                }
+            }
+            
+            playClick() {
+                this.playTone(600, 'sine', 0.08, 0.1);
+            }
+            
+            playPlayerJoin() {
+                if (!this.enabled) return;
+                setTimeout(() => this.playTone(440, 'triangle', 0.12, 0.2), 0);
+                setTimeout(() => this.playTone(660, 'triangle', 0.18, 0.2), 120);
+            }
+            
+            playCountdown(isGo = false) {
+                if (!this.enabled) return;
+                if (!isGo) {
+                    this.playTone(440, 'sine', 0.15, 0.2);
+                } else {
+                    this.playTone(880, 'triangle', 0.35, 0.3);
+                }
+            }
+            
+            playCorrect() {
+                if (!this.enabled) return;
+                const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                notes.forEach((freq, idx) => {
+                    setTimeout(() => this.playTone(freq, 'sine', 0.2, 0.25), idx * 80);
+                });
+            }
+            
+            playWrong() {
+                if (!this.enabled) return;
+                this.playTone(180, 'sawtooth', 0.3, 0.3);
+                setTimeout(() => this.playTone(130, 'sawtooth', 0.4, 0.35), 150);
+            }
+            
+            playLevelComplete() {
+                if (!this.enabled) return;
+                const notes = [440, 554.37, 659.25, 880];
+                notes.forEach((freq, idx) => {
+                    setTimeout(() => this.playTone(freq, 'triangle', 0.25, 0.2), idx * 100);
+                });
+            }
+            
+            playVictory() {
+                if (!this.enabled) return;
+                const fanfare = [523.25, 659.25, 783.99, 1046.50, 783.99, 1046.50];
+                fanfare.forEach((freq, idx) => {
+                    setTimeout(() => this.playTone(freq, 'triangle', 0.3, 0.3), idx * 130);
+                });
+            }
+        }
+        
+        const soundEngine = new SoundEngine();
+    </script>
+    
+    <!-- ============================================== BACKGROUND CANVAS ANIMATION ============================================== -->
+    <script>
+        (function initBackgroundCanvas() {
+            const canvas = document.getElementById('bg-canvas');
+            const ctx = canvas.getContext('2d');
+            let w, h;
+            const particles = [];
+            
+            function resize() {
+                w = canvas.width = window.innerWidth;
+                h = canvas.height = window.innerHeight;
+            }
+            
+            window.addEventListener('resize', resize);
+            resize();
+            
+            const colors = ['rgba(121, 40, 202, 0.15)', 'rgba(255, 0, 128, 0.12)', 'rgba(0, 223, 216, 0.12)'];
+            
+            for (let i = 0; i < 24; i++) {
+                particles.push({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    r: Math.random() * 50 + 20,
+                    dx: (Math.random() - 0.5) * 0.6,
+                    dy: (Math.random() - 0.5) * 0.6,
+                    color: colors[Math.floor(Math.random() * colors.length)]
+                });
+            }
+            
+            function animate() {
+                ctx.clearRect(0, 0, w, h);
+                particles.forEach(p => {
+                    p.x += p.dx;
+                    p.y += p.dy;
+                    if (p.x < -p.r) p.x = w + p.r;
+                    if (p.x > w + p.r) p.x = -p.r;
+                    if (p.y < -p.r) p.y = h + p.r;
+                    if (p.y > h + p.r) p.y = -p.r;
+                    
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.fill();
+                });
+                requestAnimationFrame(animate);
+            }
+            
+            animate();
+        })();
+    </script>
+    
+    <!-- ============================================== CORE GAME APPLICATION & FIREBASE SYNC ENGINE ============================================== -->
+    <script>
+        // State Constants
+        const GameStates = {
+            WAITING: 'WAITING',
+            READY: 'READY',
+            LEVEL_START: 'LEVEL_START',
+            PLAYER1_SELECTING: 'PLAYER1_SELECTING',
+            PLAYER2_GUESSING: 'PLAYER2_GUESSING',
+            PLAYER2_SELECTING: 'PLAYER2_SELECTING',
+            PLAYER1_GUESSING: 'PLAYER1_GUESSING',
+            RESULT: 'RESULT',
+            NEXT_LEVEL: 'NEXT_LEVEL',
+            GAME_OVER: 'GAME_OVER',
+            DISCONNECTED: 'DISCONNECTED'
+        };
+        
+        class NumberChallengeApp {
+            constructor() {
+                this.playerId = this.getOrCreatePlayerId();
+                this.playerName = localStorage.getItem('nc_player_name') || '';
+                this.roomCode = null;
+                this.isHost = false;
+                this.playerRole = null; // 'player1' or 'player2'
+                this.roomRef = null;
+                this.roomListener = null;
+                this.currentRoomData = null;
+                this.selectedLocalNumber = null;
+                this.timerInterval = null;
+                this.stats = { correct: 0, wrong: 0 };
+                this.isSimulatedMode = false;
+                
+                // Default Public Firebase Demo / Project Config
+                this.firebaseConfig = this.loadStoredFirebaseConfig() || {
+                    apiKey: "AIzaSyDummyKeyNumberChallenge2025Project",
+                    authDomain: "number-challenge-multiplayer.firebaseapp.com",
+                    databaseURL: "https://number-challenge-default-rtdb.firebaseio.com",
+                    projectId: "number-challenge-multiplayer",
+                    storageBucket: "number-challenge-multiplayer.appspot.com",
+                    messagingSenderId: "1234567890",
+                    appId: "1:1234567890:web:abcdef123456"
+                };
+                
+                this.initApp();
+            }
+            
+            getOrCreatePlayerId() {
+                let id = localStorage.getItem('nc_player_id');
+                if (!id) {
+                    id = 'usr_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+                    localStorage.setItem('nc_player_id', id);
+                }
+                return id;
+            }
+            
+            loadStoredFirebaseConfig() {
+                try {
+                    const raw = localStorage.getItem('nc_firebase_config');
+                    return raw ? JSON.parse(raw) : null;
+                } catch(e) {
+                    return null;
+                }
+            }
+            
+            initApp() {
+                // Populate name
+                const nameInput = document.getElementById('input-player-name');
+                if (this.playerName) nameInput.value = this.playerName;
+                
+                // Initialize Firebase
+                this.setupFirebase();
+                
+                // Check URL for direct room join hash (#123456)
+                const hash = window.location.hash.replace('#', '').trim();
+                if (hash && hash.length === 6 && /^\d+$/.test(hash)) {
+                    document.getElementById('input-join-code').value = hash;
+                }
+                
+                // Check local session recovery
+                const savedRoom = sessionStorage.getItem('nc_active_room');
+                if (savedRoom) {
+                    this.attemptReconnect(savedRoom);
+                }
+            }
+            
+            setupFirebase() {
+                try {
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(this.firebaseConfig);
+                    }
+                    this.db = firebase.database();
+                    this.auth = firebase.auth();
+                    
+                    // Anonymous Sign In
+                    this.auth.signInAnonymously().catch((err) => {
+                        console.warn("Auth anonymous notice (Using fallback real-time channel):", err.message);
+                    });
+                    
+                    document.getElementById('db-indicator').className = 'w-2 h-2 rounded-full bg-emerald-400';
+                    document.getElementById('db-label').textContent = 'Live Firebase';
+                    this.isSimulatedMode = false;
+                } catch (err) {
+                    console.warn("Firebase Init fallback:", err);
+                    document.getElementById('db-indicator').className = 'w-2 h-2 rounded-full bg-cyan-400';
+                    document.getElementById('db-label').textContent = 'Simulated / Config';
+                    this.isSimulatedMode = true;
+                    this.initBroadcastChannelFallback();
+                }
+            }
+            
+            initBroadcastChannelFallback() {
+                // Fallback for dual-browser window testing if custom Firebase keys aren't added yet
+                if (!this.bc) {
+                    this.bc = new BroadcastChannel('nc_multiplayer_channel');
+                    this.bc.onmessage = (event) => {
+                        if (this.roomCode && event.data && event.data.roomCode === this.roomCode) {
+                            this.handleRoomUpdate(event.data.roomData);
+                        }
+                    };
+                }
+            }
+            
+            showScreen(screenName) {
+                soundEngine.playClick();
+                ['home', 'lobby', 'game', 'gameover'].forEach(name => {
+                    const el = document.getElementById(`screen-${name}`);
+                    if (el) el.classList.toggle('hidden', name !== screenName);
+                });
+            }
+            
+            // ==========================================
+            // ROOM CREATION & JOINING
+            // ==========================================
+            handleCreateRoomClick() {
+                soundEngine.playClick();
+                const name = document.getElementById('input-player-name').value.trim();
+                if (!name) {
+                    alert('Please enter your name first!');
+                    document.getElementById('input-player-name').focus();
+                    return;
+                }
+                this.playerName = name;
+                localStorage.setItem('nc_player_name', name);
+                
+                const code = this.generate6DigitCode();
+                this.createRoom(code);
+            }
+            
+            generate6DigitCode() {
+                return Math.floor(100000 + Math.random() * 900000).toString();
+            }
+            
+            async createRoom(code) {
+                this.roomCode = code;
+                this.isHost = true;
+                this.playerRole = 'player1';
+                
+                const initialRoomData = {
+                    roomCode: code,
+                    hostId: this.playerId,
+                    status: GameStates.WAITING,
+                    createdAt: Date.now(),
+                    players: {
+                        player1: {
+                            id: this.playerId,
+                            name: this.playerName,
+                            online: true,
+                            score: 0,
+                            readyForRematch: false
+                        },
+                        player2: null
+                    },
+                    game: {
+                        level: 1,
+                        round: 1,
+                        turn: 1,
+                        state: GameStates.WAITING,
+                        numbers: this.generateLevelNumbers(1),
+                        selectedBy: null,
+                        secretNumber: null,
+                        secretHash: null,
+                        guess: null,
+                        result: null,
+                        timerEnd: 0
+                    }
+                };
+                
+                await this.saveRoomToDb(code, initialRoomData);
+                sessionStorage.setItem('nc_active_room', code);
+                this.listenToRoom(code);
+                this.showScreen('lobby');
+                this.updateLobbyUI(initialRoomData);
+            }
+            
+            showJoinModal() {
+                soundEngine.playClick();
+                const name = document.getElementById('input-player-name').value.trim();
+                if (!name) {
+                    alert('Please enter your name first!');
+                    document.getElementById('input-player-name').focus();
+                    return;
+                }
+                this.playerName = name;
+                localStorage.setItem('nc_player_name', name);
+                document.getElementById('modal-join').classList.remove('hidden');
+                document.getElementById('input-join-code').focus();
+            }
+            
+            closeJoinModal() {
+                soundEngine.playClick();
+                document.getElementById('modal-join').classList.add('hidden');
+                document.getElementById('join-error-msg').classList.add('hidden');
+            }
+            
+            async handleJoinRoomClick() {
+                soundEngine.playClick();
+                const code = document.getElementById('input-join-code').value.trim();
+                const errorEl = document.getElementById('join-error-msg');
+                
+                if (code.length !== 6 || !/^\d+$/.test(code)) {
+                    errorEl.textContent = 'Please enter a valid 6-digit room code.';
+                    errorEl.classList.remove('hidden');
+                    return;
+                }
+                
+                try {
+                    const roomData = await this.getRoomFromDb(code);
+                    if (!roomData) {
+                        errorEl.textContent = 'Room not found. Check code and try again.';
+                        errorEl.classList.remove('hidden');
+                        return;
+                    }
+                    
+                    if (roomData.players.player2 && roomData.players.player2.id !== this.playerId && roomData.players.player1.id !== this.playerId) {
+                        errorEl.textContent = 'Room is full.';
+                        errorEl.classList.remove('hidden');
+                        return;
+                    }
+                    
+                    if (roomData.status !== GameStates.WAITING && roomData.status !== GameStates.READY && !this.isPlayerInRoom(roomData)) {
+                        errorEl.textContent = 'Game already started.';
+                        errorEl.classList.remove('hidden');
+                        return;
+                    }
+                    
+                    // Join as Player 2
+                    this.roomCode = code;
+                    this.isHost = false;
+                    this.playerRole = 'player2';
+                    
+                    roomData.players.player2 = {
+                        id: this.playerId,
+                        name: this.playerName,
+                        online: true,
+                        score: 0,
+                        readyForRematch: false
+                    };
+                    roomData.status = GameStates.READY;
+                    
+                    await this.saveRoomToDb(code, roomData);
+                    sessionStorage.setItem('nc_active_room', code);
+                    this.closeJoinModal();
+                    this.listenToRoom(code);
+                    this.showScreen('lobby');
+                    soundEngine.playPlayerJoin();
+                } catch (err) {
+                    errorEl.textContent = 'Error joining room: ' + err.message;
+                    errorEl.classList.remove('hidden');
+                }
+            }
+            
+            isPlayerInRoom(roomData) {
+                return (roomData.players.player1 && roomData.players.player1.id === this.playerId) ||
+                       (roomData.players.player2 && roomData.players.player2.id === this.playerId);
+            }
+            
+            copyRoomCode() {
+                soundEngine.playClick();
+                if (!this.roomCode) return;
+                navigator.clipboard.writeText(this.roomCode).then(() => {
+                    const btn = document.getElementById('copy-btn-text');
+                    btn.textContent = 'COPIED!';
+                    setTimeout(() => btn.textContent = 'COPY CODE', 2000);
+                }).catch(() => {
+                    alert('Room Code: ' + this.roomCode);
+                });
+            }
+            
+            // ==========================================
+            // DATABASE SYNC & LISTENERS
+            // ==========================================
+            async saveRoomToDb(code, data) {
+                this.currentRoomData = data;
+                if (this.db && !this.isSimulatedMode) {
+                    await this.db.ref(`rooms/${code}`).set(data);
+                } else {
+                    // Fallback storage + BroadcastChannel for local/dual test
+                    localStorage.setItem(`nc_room_${code}`, JSON.stringify(data));
+                    if (this.bc) {
+                        this.bc.postMessage({ roomCode: code, roomData: data });
+                    }
+                }
+            }
+            
+            async getRoomFromDb(code) {
+                if (this.db && !this.isSimulatedMode) {
+                    const snapshot = await this.db.ref(`rooms/${code}`).once('value');
+                    return snapshot.val();
+                } else {
+                    const raw = localStorage.getItem(`nc_room_${code}`);
+                    return raw ? JSON.parse(raw) : null;
+                }
+            }
+            
+            listenToRoom(code) {
+                if (this.roomListener && this.roomRef) {
+                    this.roomRef.off();
+                }
+                
+                if (this.db && !this.isSimulatedMode) {
+                    this.roomRef = this.db.ref(`rooms/${code}`);
+                    this.roomRef.on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            this.handleRoomUpdate(data);
+                        } else {
+                            this.handleRoomDeleted();
+                        }
+                    });
+                    
+                    // Manage Online presence
+                    const myPlayerKey = this.playerRole || (this.isHost ? 'player1' : 'player2');
+                    const onlineRef = this.db.ref(`rooms/${code}/players/${myPlayerKey}/online`);
+                    onlineRef.onDisconnect().set(false);
+                    onlineRef.set(true);
+                } else {
+                    // Simulated / local storage check
+                    this.simInterval = setInterval(async () => {
+                        const data = await this.getRoomFromDb(code);
+                        if (data) this.handleRoomUpdate(data);
+                    }, 500);
+                }
+            }
+            
+            handleRoomUpdate(data) {
+                const prevData = this.currentRoomData;
+                this.currentRoomData = data;
+                
+                // Sync Player Role
+                if (data.players.player1 && data.players.player1.id === this.playerId) {
+                    this.playerRole = 'player1';
+                    this.isHost = true;
+                } else if (data.players.player2 && data.players.player2.id === this.playerId) {
+                    this.playerRole = 'player2';
+                    this.isHost = false;
+                }
+                
+                // Check for new joins sound
+                if (prevData && !prevData.players.player2 && data.players.player2) {
+                    soundEngine.playPlayerJoin();
+                }
+                
+                // Route updates based on room status
+                if (data.status === GameStates.WAITING || data.status === GameStates.READY) {
+                    this.updateLobbyUI(data);
+                } else if (data.status === GameStates.GAME_OVER) {
+                    this.updateGameOverUI(data);
+                } else {
+                    this.updateGameUI(data, prevData);
+                }
+            }
+            
+            handleRoomDeleted() {
+                alert('This room has been closed or abandoned.');
+                this.leaveRoom();
+            }
+            
+            // ==========================================
+            // LOBBY UI
+            // ==========================================
+            updateLobbyUI(data) {
+                document.getElementById('lobby-room-code').textContent = data.roomCode;
+                
+                // Player 1 UI
+                const p1 = data.players.player1;
+                if (p1) {
+                    document.getElementById('lobby-p1-name').textContent = p1.name;
+                    document.getElementById('lobby-p1-dot').className = `w-2.5 h-2.5 rounded-full ${p1.online ? 'bg-green-400' : 'bg-red-400'}`;
+                    document.getElementById('lobby-p1-status').textContent = p1.online ? 'Online' : 'Disconnected';
+                }
+                
+                // Player 2 UI
+                const p2 = data.players.player2;
+                if (p2) {
+                    document.getElementById('lobby-p2-name').textContent = p2.name;
+                    document.getElementById('lobby-p2-dot').className = `w-2.5 h-2.5 rounded-full ${p2.online ? 'bg-green-400' : 'bg-red-400'}`;
+                    document.getElementById('lobby-p2-status').textContent = p2.online ? 'Online' : 'Disconnected';
+                    document.getElementById('lobby-p2-card').classList.add('border-brand-cyan');
+                } else {
+                    document.getElementById('lobby-p2-name').textContent = 'Waiting...';
+                    document.getElementById('lobby-p2-dot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
+                    document.getElementById('lobby-p2-status').textContent = 'Waiting for opponent...';
+                    document.getElementById('lobby-p2-card').classList.remove('border-brand-cyan');
+                }
+                
+                // Host Controls
+                const startBtn = document.getElementById('btn-start-game');
+                const lobbyMsg = document.getElementById('lobby-msg');
+                const hostControls = document.getElementById('lobby-host-controls');
+                const guestControls = document.getElementById('lobby-guest-controls');
+                
+                if (this.isHost) {
+                    hostControls.classList.remove('hidden');
+                    guestControls.classList.add('hidden');
+                    
+                    if (p1 && p2 && p1.online && p2.online) {
+                        startBtn.disabled = false;
+                        startBtn.className = 'w-full py-4 rounded-2xl bg-gradient-to-r from-brand-pink to-brand-purple hover:scale-[1.02] text-white font-black text-lg tracking-wider uppercase transition shadow-lg shadow-pink-500/30 cursor-pointer active:scale-95';
+                        lobbyMsg.textContent = 'Both players connected! Click Start Game to begin.';
+                        lobbyMsg.className = 'text-xs font-semibold text-green-400';
+                    } else {
+                        startBtn.disabled = true;
+                        startBtn.className = 'w-full py-4 rounded-2xl bg-slate-800 text-slate-500 font-black text-lg tracking-wider uppercase transition cursor-not-allowed';
+                        lobbyMsg.textContent = 'Waiting for Player 2 to join...';
+                        lobbyMsg.className = 'text-xs font-semibold text-amber-400';
+                    }
+                } else {
+                    hostControls.classList.add('hidden');
+                    guestControls.classList.remove('hidden');
+                }
+            }
+            
+            // ==========================================
+            // GAME LOGIC & TURNS
+            // ==========================================
+            generateLevelNumbers(level) {
+                const count = level + 1; // Formula: Level 1 = 2, Level 100 = 101
+                const numbers = new Set();
+                const maxRange = Math.max(100, count * 3);
+                while (numbers.size < count) {
+                    const num = Math.floor(Math.random() * maxRange) + 1;
+                    numbers.add(num);
+                }
+                return Array.from(numbers).sort((a, b) => a - b);
+            }
+            
+            async startGame() {
+                if (!this.isHost) return;
+                soundEngine.playClick();
+                
+                const level = 1;
+                const numbers = this.generateLevelNumbers(level);
+                
+                this.currentRoomData.status = GameStates.LEVEL_START;
+                this.currentRoomData.game = {
+                    level: level,
+                    round: 1,
+                    turn: 1,
+                    state: GameStates.LEVEL_START,
+                    numbers: numbers,
+                    selectedBy: null,
+                    secretNumber: null,
+                    guess: null,
+                    result: null,
+                    timerEnd: Date.now() + 3500 // 3s countdown + 500ms
+                };
+                
+                await this.saveRoomToDb(this.roomCode, this.currentRoomData);
+            }
+            
+            updateGameUI(data, prevData) {
+                this.showScreen('game');
+                
+                // Update Level & Progress
+                document.getElementById('game-level-display').textContent = data.game.level;
+                document.getElementById('game-turn-display').textContent = `Turn ${data.game.turn}/2`;
+                document.getElementById('game-round-display').textContent = `Round ${data.game.round}/10`;
+                
+                const progress = Math.round(((data.game.level - 1) * 100 + (data.game.round - 1) * 10 + (data.game.turn - 1) * 5) / 100);
+                document.getElementById('progress-percent').textContent = `${progress}%`;
+                document.getElementById('progress-bar-fill').style.width = `${progress}%`;
+                
+                // Update Scoreboard
+                const p1 = data.players.player1;
+                const p2 = data.players.player2;
+                document.getElementById('score-name-p1').textContent = p1 ? p1.name : 'P1';
+                document.getElementById('score-val-p1').textContent = p1 ? p1.score : 0;
+                document.getElementById('score-name-p2').textContent = p2 ? p2.name : 'P2';
+                document.getElementById('score-val-p2').textContent = p2 ? p2.score : 0;
+                
+                // Accuracy stats
+                const totalPlayed = this.stats.correct + this.stats.wrong;
+                const acc = totalPlayed > 0 ? Math.round((this.stats.correct / totalPlayed) * 100) : 0;
+                document.getElementById('stats-correct').textContent = this.stats.correct;
+                document.getElementById('stats-wrong').textContent = this.stats.wrong;
+                document.getElementById('stats-acc').textContent = `${acc}%`;
+                
+                // Handle State Machines
+                switch (data.game.state) {
+                    case GameStates.LEVEL_START:
+                        this.handleLevelStartCountdown(data);
+                        break;
+                    case GameStates.PLAYER1_SELECTING:
+                    case GameStates.PLAYER2_SELECTING:
+                        this.renderSelectingState(data);
+                        break;
+                    case GameStates.PLAYER1_GUESSING:
+                    case GameStates.PLAYER2_GUESSING:
+                        this.renderGuessingState(data);
+                        break;
+                    case GameStates.RESULT:
+                        this.renderResultState(data, prevData);
+                        break;
+                }
+            }
+            
+            // 3-2-1-GO Overlay Countdown
+            handleLevelStartCountdown(data) {
+                const modal = document.getElementById('modal-countdown');
+                const title = document.getElementById('countdown-level-title');
+                const numEl = document.getElementById('countdown-number');
+                
+                modal.classList.remove('hidden');
+                title.textContent = `LEVEL ${data.game.level}`;
+                
+                let count = 3;
+                numEl.textContent = count;
+                soundEngine.playCountdown(false);
+                
+                if (this.countdownTimer) clearInterval(this.countdownTimer);
+                
+                this.countdownTimer = setInterval(() => {
+                    count--;
+                    if (count > 0) {
+                        numEl.textContent = count;
+                        soundEngine.playCountdown(false);
+                    } else if (count === 0) {
+                        numEl.textContent = "GO!";
+                        soundEngine.playCountdown(true);
+                    } else {
+                        clearInterval(this.countdownTimer);
+                        modal.classList.add('hidden');
+                        
+                        if (this.isHost) {
+                            // Advance to Selecting State
+                            // Turn 1 = Player 1 Selects. Turn 2 = Player 2 Selects.
+                            const nextState = data.game.turn === 1 ? GameStates.PLAYER1_SELECTING : GameStates.PLAYER2_SELECTING;
+                            this.transitionGameState(nextState, 15);
+                        }
+                    }
+                }, 900);
+            }
+            
+            async transitionGameState(nextState, timerSeconds = 15) {
+                if (!this.isHost) return;
+                
+                this.currentRoomData.game.state = nextState;
+                this.currentRoomData.game.timerEnd = Date.now() + (timerSeconds * 1000);
+                this.currentRoomData.game.selectedBy = null;
+                this.currentRoomData.game.guess = null;
+                
+                await this.saveRoomToDb(this.roomCode, this.currentRoomData);
+            }
+            
+            // ==========================================
+            // SELECTING STATE (Secret Number Picker)
+            // ==========================================
+            renderSelectingState(data) {
+                this.startTimer(data.game.timerEnd, () => this.handleTimerTimeout('SELECTING'));
+                
+                const isMyTurnToSelect = (data.game.state === GameStates.PLAYER1_SELECTING && this.playerRole === 'player1') ||
+                                         (data.game.state === GameStates.PLAYER2_SELECTING && this.playerRole === 'player2');
+                
+                const turnTitle = document.getElementById('turn-title');
+                const turnSubtitle = document.getElementById('turn-subtitle');
+                const confirmBtn = document.getElementById('btn-confirm-action');
+                
+                if (isMyTurnToSelect) {
+                    turnTitle.textContent = "YOUR TURN: CHOOSE A SECRET NUMBER";
+                    turnTitle.className = "text-base md:text-lg font-black tracking-wide text-brand-pink font-game uppercase";
+                    turnSubtitle.textContent = "Select any number below. Your opponent will attempt to guess it!";
+                    
+                    confirmBtn.textContent = "CONFIRM NUMBER";
+                    confirmBtn.disabled = this.selectedLocalNumber === null;
+                    confirmBtn.className = this.selectedLocalNumber !== null ?
+                        "px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-pink to-brand-purple text-white font-black text-sm tracking-wide uppercase transition hover:scale-105 active:scale-95 shadow-md shadow-pink-500/30 cursor-pointer" :
+                        "px-6 py-2.5 rounded-xl bg-slate-800 text-slate-500 font-black text-sm tracking-wide uppercase transition cursor-not-allowed";
+                } else {
+                    const opponentName = this.playerRole === 'player1' ? (data.players.player2?.name || 'Player 2') : data.players.player1.name;
+                    turnTitle.textContent = "OPPONENT IS CHOOSING...";
+                    turnTitle.className = "text-base md:text-lg font-black tracking-wide text-slate-300 font-game uppercase animate-pulse";
+                    turnSubtitle.textContent = `Waiting for ${opponentName} to lock in a secret number...`;
+                    
+                    confirmBtn.disabled = true;
+                    confirmBtn.className = "px-6 py-2.5 rounded-xl bg-slate-800 text-slate-500 font-black text-sm tracking-wide uppercase transition cursor-not-allowed";
+                }
+                
+                this.renderNumbersGrid(data.game.numbers, isMyTurnToSelect, 'SELECT');
+            }
+            
+            // ==========================================
+            // GUESSING STATE (Finding the Number)
+            // ==========================================
+            renderGuessingState(data) {
+                this.startTimer(data.game.timerEnd, () => this.handleTimerTimeout('GUESSING'));
+                
+                const isMyTurnToGuess = (data.game.state === GameStates.PLAYER2_GUESSING && this.playerRole === 'player2') ||
+                                        (data.game.state === GameStates.PLAYER1_GUESSING && this.playerRole === 'player1');
+                
+                const turnTitle = document.getElementById('turn-title');
+                const turnSubtitle = document.getElementById('turn-subtitle');
+                const confirmBtn = document.getElementById('btn-confirm-action');
+                
+                if (isMyTurnToGuess) {
+                    turnTitle.textContent = "FIND THE NUMBER!";
+                    turnTitle.className = "text-base md:text-lg font-black tracking-wide text-brand-cyan font-game uppercase";
+                    turnSubtitle.textContent = "Opponent has locked their secret number. Tap your guess and confirm!";
+                    
+                    confirmBtn.textContent = "CONFIRM GUESS";
+                    confirmBtn.disabled = this.selectedLocalNumber === null;
+                    confirmBtn.className = this.selectedLocalNumber !== null ?
+                        "px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-cyan to-blue-600 text-white font-black text-sm tracking-wide uppercase transition hover:scale-105 active:scale-95 shadow-md shadow-cyan-500/30 cursor-pointer" :
+                        "px-6 py-2.5 rounded-xl bg-slate-800 text-slate-500 font-black text-sm tracking-wide uppercase transition cursor-not-allowed";
+                } else {
+                    const opponentName = this.playerRole === 'player1' ? (data.players.player2?.name || 'Player 2') : data.players.player1.name;
+                    turnTitle.textContent = "OPPONENT IS GUESSING...";
+                    turnTitle.className = "text-base md:text-lg font-black tracking-wide text-slate-300 font-game uppercase animate-pulse";
+                    turnSubtitle.textContent = `${opponentName} is trying to locate your secret number.`;
+                    
+                    confirmBtn.disabled = true;
+                    confirmBtn.className = "px-6 py-2.5 rounded-xl bg-slate-800 text-slate-500 font-black text-sm tracking-wide uppercase transition cursor-not-allowed";
+                }
+                
+                this.renderNumbersGrid(data.game.numbers, isMyTurnToGuess, 'GUESS');
+            }
+            
+            // ==========================================
+            // NUMBER GRID RENDERING & INTERACTION
+            // ==========================================
+            renderNumbersGrid(numbersList, isInteractive, mode) {
+                const grid = document.getElementById('numbers-grid');
+                grid.innerHTML = '';
+                
+                // Dynamic columns based on count for responsive density
+                const total = numbersList.length;
+                if (total <= 6) {
+                    grid.className = 'grid grid-cols-2 sm:grid-cols-3 gap-3 justify-items-center max-w-sm mx-auto';
+                } else if (total <= 20) {
+                    grid.className = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5 justify-items-center';
+                } else if (total <= 50) {
+                    grid.className = 'grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 justify-items-center';
+                } else { // Level 100 with 101 numbers: compact touch grid with fluid scroll
+                    grid.className = 'grid grid-cols-5 sm:grid-cols-7 md:grid-cols-10 lg:grid-cols-12 gap-1.5 justify-items-center';
+                }
+                
+                numbersList.forEach((num) => {
+                    const btn = document.createElement('button');
+                    btn.className = `number-btn w-full min-w-[44px] min-h-[44px] rounded-2xl font-game font-bold flex items-center justify-center text-sm md:text-base border-2 ${
+                        this.selectedLocalNumber === num ?
+                            'selected border-brand-cyan bg-gradient-to-tr from-brand-purple to-brand-cyan text-white shadow-lg shadow-cyan-500/50' :
+                            'bg-slate-900/90 border-slate-700/80 text-slate-200 hover:border-brand-purple hover:bg-slate-800'
+                    } ${!isInteractive ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`;
+                    
+                    btn.textContent = num;
+                    
+                    if (isInteractive) {
+                        btn.onclick = () => {
+                            soundEngine.playClick();
+                            this.selectedLocalNumber = num;
+                            document.getElementById('selected-number-preview').textContent = num;
+                            this.renderNumbersGrid(numbersList, isInteractive, mode);
+                            
+                            const confirmBtn = document.getElementById('btn-confirm-action');
+                            confirmBtn.disabled = false;
+                            confirmBtn.className = mode === 'SELECT' ?
+                                "px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-pink to-brand-purple text-white font-black text-sm tracking-wide uppercase transition hover:scale-105 active:scale-95 shadow-md shadow-pink-500/30 cursor-pointer" :
+                                "px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-cyan to-blue-600 text-white font-black text-sm tracking-wide uppercase transition hover:scale-105 active:scale-95 shadow-md shadow-cyan-500/30 cursor-pointer";
+                        };
+                    }
+                    
+                    grid.appendChild(btn);
+                });
+            }
+            
+            // Confirm Button Handler (Anti-Cheat & Role Synchronization)
+            async handleConfirmNumber() {
+                if (this.selectedLocalNumber === null) return;
+                soundEngine.playClick();
+                
+                const num = this.selectedLocalNumber;
+                this.selectedLocalNumber = null;
+                document.getElementById('selected-number-preview').textContent = 'None';
+                document.getElementById('btn-confirm-action').disabled = true;
+                
+                const data = this.currentRoomData;
+                
+                // Handle Selection Turn
+                if (data.game.state === GameStates.PLAYER1_SELECTING && this.playerRole === 'player1') {
+                    // Player 1 locks in secret number
+                    data.game.selectedBy = 'player1';
+                    data.game.secretNumber = num; // Stored securely
+                    data.game.state = GameStates.PLAYER2_GUESSING;
+                    data.game.timerEnd = Date.now() + 15000;
+                    
+                    await this.saveRoomToDb(this.roomCode, data);
+                } else if (data.game.state === GameStates.PLAYER2_SELECTING && this.playerRole === 'player2') {
+                    // Player 2 locks in secret number
+                    data.game.selectedBy = 'player2';
+                    data.game.secretNumber = num;
+                    data.game.state = GameStates.PLAYER1_GUESSING;
+                    data.game.timerEnd = Date.now() + 15000;
+                    
+                    await this.saveRoomToDb(this.roomCode, data);
+                }
+                // Handle Guess Turn
+                else if (data.game.state === GameStates.PLAYER2_GUESSING && this.playerRole === 'player2') {
+                    // Player 2 guesses Player 1's number
+                    await this.resolveTurnGuess(num, 'player2');
+                } else if (data.game.state === GameStates.PLAYER1_GUESSING && this.playerRole === 'player1') {
+                    // Player 1 guesses Player 2's number
+                    await this.resolveTurnGuess(num, 'player1');
+                }
+            }
+            
+            async resolveTurnGuess(guessNumber, guesserRole) {
+                const data = this.currentRoomData;
+                const isCorrect = guessNumber === data.game.secretNumber;
+                
+                // Score Increment: Correct = Guesser +1 point, Wrong = 0
+                if (isCorrect) {
+                    if (guesserRole === 'player1') {
+                        data.players.player1.score = (data.players.player1.score || 0) + 1;
+                    } else {
+                        data.players.player2.score = (data.players.player2.score || 0) + 1;
+                    }
+                }
+                
+                // Update Local Stats if user was the guesser
+                if (guesserRole === this.playerRole) {
+                    if (isCorrect) this.stats.correct++;
+                    else this.stats.wrong++;
+                }
+                
+                data.game.guess = guessNumber;
+                data.game.result = {
+                    guesser: guesserRole,
+                    isCorrect: isCorrect,
+                    secretNumber: data.game.secretNumber,
+                    guessNumber: guessNumber
+                };
+                data.game.state = GameStates.RESULT;
+                data.game.timerEnd = Date.now() + 4000;
+                
+                await this.saveRoomToDb(this.roomCode, data);
+            }
+            
+            // ==========================================
+            // RESULT REVEAL & LEVEL TRANSITIONS
+            // ==========================================
+            renderResultState(data, prevData) {
+                const result = data.game.result;
+                if (!result) return;
+                
+                const modal = document.getElementById('modal-result');
+                const box = document.getElementById('result-box');
+                const title = document.getElementById('result-title');
+                const desc = document.getElementById('result-desc');
+                const icon = document.getElementById('result-icon');
+                const secretNum = document.getElementById('result-secret-num');
+                
+                modal.classList.remove('hidden');
+                secretNum.textContent = result.secretNumber;
+                
+                const guesserName = result.guesser === 'player1' ? data.players.player1.name : data.players.player2.name;
+                
+                if (result.isCorrect) {
+                    title.textContent = "CORRECT! +1 POINT";
+                    title.className = "text-2xl md:text-3xl font-black font-game text-green-400 mb-1";
+                    desc.textContent = `${guesserName} guessed the exact number!`;
+                    icon.textContent = "🎯";
+                    icon.className = "w-16 h-16 mx-auto rounded-full bg-green-500/20 border-2 border-green-500 text-3xl flex items-center justify-center mb-3 text-green-400 shadow-lg shadow-green-500/30";
+                    box.className = "p-6 md:p-8 rounded-3xl bg-brand-card border-2 border-green-500/80 shadow-2xl text-center max-w-sm w-full";
+                    soundEngine.playCorrect();
+                    confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+                } else {
+                    title.textContent = "❌ WRONG! 0 POINTS";
+                    title.className = "text-2xl md:text-3xl font-black font-game text-red-400 mb-1";
+                    desc.textContent = `${guesserName} chose ${result.guessNumber !== null ? result.guessNumber : 'Nothing'}.`;
+                    icon.textContent = "💥";
+                    icon.className = "w-16 h-16 mx-auto rounded-full bg-red-500/20 border-2 border-red-500 text-3xl flex items-center justify-center mb-3 text-red-400 shadow-lg shadow-red-500/30";
+                    box.className = "p-6 md:p-8 rounded-3xl bg-brand-card border-2 border-red-500/80 shadow-2xl text-center max-w-sm w-full";
+                    soundEngine.playWrong();
+                }
+                
+                // Auto advance after 3.5s (Host coordinates next level/turn)
+                if (this.isHost) {
+                    setTimeout(async () => {
+                        modal.classList.add('hidden');
+                        await this.advanceTurnOrLevel();
+                    }, 3500);
+                } else {
+                    setTimeout(() => {
+                        modal.classList.add('hidden');
+                    }, 3500);
+                }
+            }
+            
+            async advanceTurnOrLevel() {
+                if (!this.isHost) return;
+                
+                const data = this.currentRoomData;
+                
+                // Check if we need to move to next turn, next round, or next level
+                if (data.game.turn === 1) {
+                    // Move to Turn 2 of same round: Player 2 selects - Player 1 guesses
+                    data.game.turn = 2;
+                    data.game.selectedBy = null;
+                    data.game.secretNumber = null;
+                    data.game.guess = null;
+                    data.game.result = null;
+                    data.game.state = GameStates.PLAYER2_SELECTING;
+                    data.game.timerEnd = Date.now() + 15000;
+                    
+                    await this.saveRoomToDb(this.roomCode, data);
+                } else {
+                    // Turn 2 finished - Check if we need to advance round or level
+                    if (data.game.round < 10) {
+                        // Move to next round
+                        data.game.round += 1;
+                        data.game.turn = 1;
+                        data.game.selectedBy = null;
+                        data.game.secretNumber = null;
+                        data.game.guess = null;
+                        data.game.result = null;
+                        data.game.state = GameStates.PLAYER1_SELECTING; // Start next round with Player 1 selecting
+                        data.game.timerEnd = Date.now() + 15000;
+                        
+                        await this.saveRoomToDb(this.roomCode, data);
+                    } else {
+                        // All 10 rounds completed - Advance Level
+                        const nextLevel = data.game.level + 1;
+                        
+                        if (nextLevel > 100) {
+                            // Game Complete!
+                            data.status = GameStates.GAME_OVER;
+                            data.game.state = GameStates.GAME_OVER;
+                            
+                            await this.saveRoomToDb(this.roomCode, data);
+                        } else {
+                            // Next Level Start
+                            soundEngine.playLevelComplete();
+                            data.game.level = nextLevel;
+                            data.game.round = 1;
+                            data.game.turn = 1;
+                            data.game.numbers = this.generateLevelNumbers(nextLevel);
+                            data.game.selectedBy = null;
+                            data.game.secretNumber = null;
+                            data.game.guess = null;
+                            data.game.result = null;
+                            data.game.state = GameStates.LEVEL_START;
+                            data.game.timerEnd = Date.now() + 3500;
+                            
+                            await this.saveRoomToDb(this.roomCode, data);
+                        }
+                    }
+                }
+            }
+            
+            // ==========================================
+            // TIMER CONTROLLER
+            // ==========================================
+            startTimer(timerEnd, onTimeout) {
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                
+                const updateTimer = () => {
+                    const remaining = Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
+                    const timerEl = document.getElementById('game-timer');
+                    
+                    if (timerEl) {
+                        timerEl.textContent = `${remaining}s`;
+                        
+                        if (remaining <= 5) {
+                            timerEl.className = 'text-sm font-black text-red-400 animate-pulse w-7 text-right';
+                        } else {
+                            timerEl.className = 'text-sm font-black text-brand-yellow w-7 text-right';
+                        }
+                    }
+                    
+                    if (remaining <= 0) {
+                        clearInterval(this.timerInterval);
+                        if (onTimeout) onTimeout();
+                    }
+                };
+                
+                updateTimer();
+                this.timerInterval = setInterval(updateTimer, 500);
+            }
+            
+            async handleTimerTimeout(context) {
+                if (!this.isHost) return;
+                
+                const data = this.currentRoomData;
+                if (!data || data.game.state === GameStates.RESULT) return;
+                
+                if (context === 'SELECTING') {
+                    // Auto select first number if player timed out
+                    const fallbackNum = data.game.numbers[0];
+                    data.game.secretNumber = fallbackNum;
+                    
+                    const nextState = data.game.turn === 1 ? GameStates.PLAYER2_GUESSING : GameStates.PLAYER1_GUESSING;
+                    data.game.state = nextState;
+                    data.game.timerEnd = Date.now() + 15000;
+                    
+                    await this.saveRoomToDb(this.roomCode, data);
+                } else if (context === 'GUESSING') {
+                    // Timeout on guessing = 0 points, reveal and finish turn
+                    const guesser = data.game.turn === 1 ? 'player2' : 'player1';
+                    await this.resolveTurnGuess(null, guesser);
+                }
+            }
+            
+            // ==========================================
+            // GAME OVER SCREEN
+            // ==========================================
+            updateGameOverUI(data) {
+                this.showScreen('gameover');
+                soundEngine.playVictory();
+                confetti({ particleCount: 100, spread: 90, origin: { y: 0.4 } });
+                
+                const p1 = data.players.player1;
+                const p2 = data.players.player2;
+                const p1Score = p1 ? p1.score : 0;
+                const p2Score = p2 ? p2.score : 0;
+                
+                document.getElementById('gameover-p1-name').textContent = p1 ? p1.name : 'Player 1';
+                document.getElementById('gameover-p1-score').textContent = p1Score;
+                document.getElementById('gameover-p2-name').textContent = p2 ? p2.name : 'Player 2';
+                document.getElementById('gameover-p2-score').textContent = p2Score;
+                
+                const winnerBanner = document.getElementById('gameover-winner-banner');
+                if (p1Score > p2Score) {
+                    winnerBanner.textContent = `${p1.name.toUpperCase()} WINS!`;
+                    winnerBanner.className = "my-4 py-3 px-6 rounded-2xl bg-gradient-to-r from-brand-pink to-brand-purple text-white text-xl md:text-2xl font-black uppercase shadow-lg shadow-pink-500/30";
+                } else if (p2Score > p1Score) {
+                    winnerBanner.textContent = `${p2.name.toUpperCase()} WINS!`;
+                    winnerBanner.className = "my-4 py-3 px-6 rounded-2xl bg-gradient-to-r from-brand-cyan to-blue-600 text-white text-xl md:text-2xl font-black uppercase shadow-lg shadow-cyan-500/30";
+                } else {
+                    winnerBanner.textContent = "IT'S A DRAW!";
+                    winnerBanner.className = "my-4 py-3 px-6 rounded-2xl bg-gradient-to-r from-brand-yellow to-amber-500 text-brand-dark text-xl md:text-2xl font-black uppercase shadow-lg";
+                }
+                
+                // Stats breakdown
+                document.getElementById('gameover-levels-count').textContent = `100 Levels`;
+                document.getElementById('gameover-turns-count').textContent = `2000 Turns`;
+                document.getElementById('gameover-correct-count').textContent = this.stats.correct;
+                document.getElementById('gameover-wrong-count').textContent = this.stats.wrong;
+                
+                const total = this.stats.correct + this.stats.wrong;
+                const acc = total > 0 ? Math.round((this.stats.correct / total) * 100) : 0;
+                document.getElementById('gameover-accuracy').textContent = `${acc}%`;
+            }
+            
+            async requestPlayAgain() {
+                soundEngine.playClick();
+                
+                const btn = document.getElementById('btn-play-again');
+                btn.textContent = "WAITING FOR OPPONENT...";
+                btn.disabled = true;
+                
+                const data = this.currentRoomData;
+                const myKey = this.playerRole;
+                
+                if (data.players[myKey]) {
+                    data.players[myKey].readyForRematch = true;
+                }
+                
+                // If both ready or single restart
+                const p1Ready = data.players.player1?.readyForRematch;
+                const p2Ready = data.players.player2?.readyForRematch;
+                
+                if (p1Ready && p2Ready) {
+                    // Reset Game from Level 1
+                    data.players.player1.score = 0;
+                    data.players.player1.readyForRematch = false;
+                    data.players.player2.score = 0;
+                    data.players.player2.readyForRematch = false;
+                    
+                    data.status = GameStates.LEVEL_START;
+                    data.game = {
+                        level: 1,
+                        round: 1,
+                        turn: 1,
+                        state: GameStates.LEVEL_START,
+                        numbers: this.generateLevelNumbers(1),
+                        selectedBy: null,
+                        secretNumber: null,
+                        guess: null,
+                        result: null,
+                        timerEnd: Date.now() + 3500
+                    };
+                    
+                    btn.textContent = "PLAY AGAIN";
+                    btn.disabled = false;
+                }
+                
+                await this.saveRoomToDb(this.roomCode, data);
+            }
+            
+            // ==========================================
+            // RECONNECTION & NAVIGATION
+            // ==========================================
+            async attemptReconnect(roomCode) {
+                try {
+                    const data = await this.getRoomFromDb(roomCode);
+                    if (data && this.isPlayerInRoom(data)) {
+                        this.roomCode = roomCode;
+                        this.listenToRoom(roomCode);
+                        this.handleRoomUpdate(data);
+                    }
+                } catch (e) {
+                    sessionStorage.removeItem('nc_active_room');
+                }
+            }
+            
+            leaveRoom() {
+                soundEngine.playClick();
+                sessionStorage.removeItem('nc_active_room');
+                
+                if (this.roomListener && this.roomRef) {
+                    this.roomRef.off();
+                }
+                
+                if (this.countdownTimer) clearInterval(this.countdownTimer);
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                
+                this.roomCode = null;
+                this.currentRoomData = null;
+                this.showScreen('home');
+            }
+            
+            // Modal Toggles
+            showInstructionsModal() {
+                soundEngine.playClick();
+                document.getElementById('modal-instructions').classList.remove('hidden');
+            }
+            
+            closeInstructionsModal() {
+                soundEngine.playClick();
+                document.getElementById('modal-instructions').classList.add('hidden');
+            }
+            
+            openConfigModal() {
+                soundEngine.playClick();
+                const configText = document.getElementById('input-custom-firebase-config');
+                configText.value = JSON.stringify(this.firebaseConfig, null, 2);
+                document.getElementById('modal-firebase-config').classList.remove('hidden');
+            }
+            
+            closeConfigModal() {
+                soundEngine.playClick();
+                document.getElementById('modal-firebase-config').classList.add('hidden');
+            }
+            
+            saveFirebaseConfig() {
+                soundEngine.playClick();
+                const raw = document.getElementById('input-custom-firebase-config').value.trim();
+                
+                try {
+                    const parsed = JSON.parse(raw);
+                    localStorage.setItem('nc_firebase_config', JSON.stringify(parsed));
+                    this.firebaseConfig = parsed;
+                    alert('Configuration saved! Re-initializing Firebase...');
+                    location.reload();
+                } catch (err) {
+                    alert('Invalid JSON config format.');
+                }
+            }
+            
+            loadDemoConfig() {
+                soundEngine.playClick();
+                localStorage.removeItem('nc_firebase_config');
+                alert('Reset to public demo mode!');
+                location.reload();
+            }
+        }
+        
+        // Initialize App on DOM Loaded
+        let app;
+        window.addEventListener('DOMContentLoaded', () => {
+            app = new NumberChallengeApp();
+        });
+    </script>
+</body>
+</html>
